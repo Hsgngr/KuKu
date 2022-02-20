@@ -1,3 +1,4 @@
+from audioop import mul
 from genericpath import exists
 import pandas as pd
 import numpy as np
@@ -6,22 +7,6 @@ import random
 import os.path as op
 import os
 
-forecast_sample_cols = [
-    'M_WEATHER_FORECAST_SAMPLES_M_SESSION_TYPE',
-    'M_WEATHER_FORECAST_SAMPLES_M_WEATHER',
-    'M_WEATHER_FORECAST_SAMPLES_M_TRACK_TEMPERATURE',
-    'M_WEATHER_FORECAST_SAMPLES_M_AIR_TEMPERATURE',
-    'M_TIME_OFFSET',
-    'M_TRACK_TEMPERATURE_CHANGE',
-    'M_AIR_TEMPERATURE_CHANGE',
-    'M_RAIN_PERCENTAGE']
-
-# ADD ADDITIONAL COLUMNS TO HERE
-additional_cols = [
-    "M_TRACK_ID",
-    "M_FORECAST_ACCURACY"
-]
-
 time_windows = {
     "5": [(0, 5), (5, 10), (10, 15)],
     "10": [(0, 10), (5, 15)],
@@ -29,47 +14,48 @@ time_windows = {
     "30": [(0, 30), (30, 60), (60, 90), (90, 120)],
     "60": [(0, 60), (60, 120)]
 }
-# ADD ADDITIONAL COLUMNS TO HERE
-single_val_cols = ['SESSION_TYPE', 'TRACK_ID', 'FORECAST_ACCURACY']
-multi_val_cols = ['AIR_TEMPERATURE_CHANGE',
-                  'TRACK_TEMPERATURE',
-                  'WEATHER',
-                  'RAIN_PERCENTAGE',
-                  'TRACK_TEMPERATURE_CHANGE',
-                  'AIR_TEMPERATURE']
+
+single_val_cols = [
+                   "M_SESSION_UID",
+                   "M_WEATHER_FORECAST_SAMPLES_M_SESSION_TYPE",
+                   "M_TRACK_ID",
+                   "M_FORECAST_ACCURACY",
+                   ]
+
+multi_val_cols = ["M_WEATHER_FORECAST_SAMPLES_M_WEATHER",
+                  "M_WEATHER_FORECAST_SAMPLES_M_TRACK_TEMPERATURE",
+                  "M_WEATHER_FORECAST_SAMPLES_M_AIR_TEMPERATURE",
+                  "M_TRACK_TEMPERATURE_CHANGE",
+                  "M_AIR_TEMPERATURE_CHANGE", 
+                  "M_RAIN_PERCENTAGE"]
 
 def clean_dataframe(data):
     dct = {}
+    columns = single_val_cols + multi_val_cols
     for (sid, ts), data_sid_ts in tqdm(data.groupby(["M_SESSION_UID", "TIMESTAMP"])):
             num_samples = list(data_sid_ts["M_NUM_WEATHER_FORECAST_SAMPLES"])[0]
             if num_samples > 0:
                 sess_col = "M_WEATHER_FORECAST_SAMPLES_M_SESSION_TYPE"
                 num_nans = data_sid_ts[sess_col].isna().sum()
                 for sess_type, data_sid_ts_sess in data_sid_ts.iloc[num_nans:num_nans+num_samples].groupby(sess_col):
-                    dct[(sid,ts,sess_type)] = data_sid_ts_sess[forecast_sample_cols+additional_cols]
+                    dct[(sid, ts, sess_type)] = data_sid_ts_sess[columns]
     return dct
 
 
-def create_processed_frame(dct, name=None, drop_duplicates=True):
+def create_processed_frame(dct, name=None):
     times = ["0", "5", "10", "15", "30", "45", "60", "90", "120"]
-    
-    single_val_cols = ["M_WEATHER_FORECAST_SAMPLES_M_SESSION_TYPE", "M_TRACK_ID", "M_FORECAST_ACCURACY"] # ADD ADDITIONAL COLUMNS TO HERE
-    multi_val_cols = ["M_WEATHER_FORECAST_SAMPLES_M_WEATHER", "M_WEATHER_FORECAST_SAMPLES_M_TRACK_TEMPERATURE",
-                      "M_WEATHER_FORECAST_SAMPLES_M_AIR_TEMPERATURE", 
-                      "M_TRACK_TEMPERATURE_CHANGE", "M_AIR_TEMPERATURE_CHANGE", "M_RAIN_PERCENTAGE"]
     multi_val_cols_timed = [f"{el}_{time}" for time in times for el in multi_val_cols]
     rows = []
-    for (sid,ts,sess_type), table in tqdm(dct.items()):
+    for table in tqdm(dct.values()):
         nans = [np.nan]*(len(times)-len(table))
         single_vals = list(table[single_val_cols].iloc[0])
         multi_vals = np.array([list(table[col])+nans for col in multi_val_cols]).T.flatten()
         row = single_vals + list(multi_vals)
         rows.append(row)
     columns = single_val_cols + multi_val_cols_timed
-    columns = [col.replace("M_WEATHER_FORECAST_SAMPLES_M_","").replace("M_","") for col in columns]
     df = pd.DataFrame(columns = columns, data=rows)
     if name is not None:
-        df.to_csv(name)
+        df.to_csv(name, index=False)
     return df
 
 def prepare_datasets(dataset_path, train_ratio = 0.7, val_ratio = 0.2):
@@ -107,7 +93,8 @@ def create_dataset(dset_dct, time_offset, drop_duplicates=True):
     for typ, dset in dset_dct.items():
         for w in windows:
             tmp_cols = single_val_cols + [f"{c}_{w[0]}" for c in multi_val_cols] + \
-                [f"WEATHER_{w[1]}", f"RAIN_PERCENTAGE_{w[1]}"]
+                [f"M_WEATHER_FORECAST_SAMPLES_M_WEATHER_{w[1]}",
+                    f"M_RAIN_PERCENTAGE_{w[1]}"]
             dset_tmp = dset[tmp_cols]
             dset_tmp = dset_tmp.dropna()
             tables.append(dset_tmp.__array__())
@@ -115,7 +102,7 @@ def create_dataset(dset_dct, time_offset, drop_duplicates=True):
         df = pd.DataFrame(columns=columns, data=rows)
         if drop_duplicates:
             df = df.drop_duplicates().reset_index(drop=True)
-        df.to_csv(op.join("data", str(time_offset), typ+".csv"))
+        df.to_csv(op.join("data", str(time_offset), typ+".csv"), index=False)
         processed_dset_dct[typ] = df
     return processed_dset_dct
 
