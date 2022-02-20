@@ -29,6 +29,9 @@ multi_val_cols = ["M_WEATHER_FORECAST_SAMPLES_M_WEATHER",
                   "M_AIR_TEMPERATURE_CHANGE", 
                   "M_RAIN_PERCENTAGE"]
 
+# removes rows that has no forecast samples
+# selects rows that contain relevant forecast sample for each (session_uid, timestamp) tuple
+# returns a dictionary that maps (session_uid, timestamp) tuples to tables that has corresponding forecast sample rows
 def clean_dataframe(data):
     dct = {}
     columns = single_val_cols + multi_val_cols
@@ -41,8 +44,9 @@ def clean_dataframe(data):
                     dct[(sid, ts, sess_type)] = data_sid_ts_sess[columns]
     return dct
 
-
-def create_processed_frame(dct, name=None):
+# creates a table where each row corresponds to a single (session_uid, timestamp) tuple and its all possible future forecasts
+# puts NaN values for forecasts that are not given
+def create_processed_frame(dct):
     times = ["0", "5", "10", "15", "30", "45", "60", "90", "120"]
     multi_val_cols_timed = [f"{el}_{time}" for time in times for el in multi_val_cols]
     rows = []
@@ -54,69 +58,70 @@ def create_processed_frame(dct, name=None):
         rows.append(row)
     columns = single_val_cols + multi_val_cols_timed
     df = pd.DataFrame(columns = columns, data=rows)
-    if name is not None:
-        df.to_csv(name, index=False)
     return df
 
+# calls clean_dataframe, create_processed_frame for the weather.csv
+# and then splits the cleaned df into train, val, test partition considering session uids
 def prepare_datasets(dataset_path, train_ratio = 0.7, val_ratio = 0.2):
     data = pd.read_csv(dataset_path)
     if "Unnamed: 58" in data.columns:
         data = data.drop(["Unnamed: 58"],axis=1)
-    session_uids = list(set(data["M_SESSION_UID"]))
+    
+    cleaned_df = clean_dataframe(data)
+    processed_df = create_processed_frame(cleaned_df)
+    temp_na_token = -999
+    processed_df[processed_df.isna()] = -temp_na_token
+    processed_df = processed_df.drop_duplicates()
+    processed_df[processed_df==-temp_na_token] = pd.NA
+
+    session_uids = list(set(processed_df["M_SESSION_UID"]))
     random.shuffle(session_uids)
     train_uids, val_uids, test_uids = np.split(session_uids, [int(len(session_uids)*train_ratio),
                                                               int(len(session_uids)*(train_ratio+val_ratio))])
-    train_data = data[[uid in train_uids for uid in data["M_SESSION_UID"]]]
-    val_data = data[[uid in val_uids for uid in data["M_SESSION_UID"]]]
-    test_data = data[[uid in test_uids for uid in data["M_SESSION_UID"]]]
-    len(train_data), len(val_data), len(test_data)
-    
-    print("Cleaning Data")
-    train_dct_cleaned = clean_dataframe(train_data)
-    val_dct_cleaned = clean_dataframe(val_data)
-    test_dct_cleaned = clean_dataframe(test_data)
-    
-    print("Creating Dataframes")
-    train_df = create_processed_frame(train_dct_cleaned, op.join("data","train.csv"))
-    val_df = create_processed_frame(val_dct_cleaned, op.join("data","val.csv"))
-    test_df = create_processed_frame(test_dct_cleaned, op.join("data","test.csv"))
+    train_df = processed_df[[uid in train_uids for uid in processed_df["M_SESSION_UID"]]]
+    test_df = processed_df[[uid in test_uids for uid in processed_df["M_SESSION_UID"]]]
+    val_df = processed_df[[uid in val_uids for uid in processed_df["M_SESSION_UID"]]]
+
+    train_df.to_csv(op.join("data","train.csv"), index=False)
+    val_df.to_csv(op.join("data","val.csv"), index=False)
+    test_df.to_csv(op.join("data","test.csv"), index=False)
+
     return train_df, val_df, test_df
 
-
-def create_dataset(dset_dct, time_offset, drop_duplicates=True):
-    tables = []
+# for given time offset creates a table that has all relevant input features and outputs
+def create_dataset(dset_dct, time_offset):
     columns = single_val_cols + multi_val_cols + \
         ["TARGET_WEATHER", "TARGET_RAIN_PERCENTAGE"]
     windows = time_windows[time_offset]
     processed_dset_dct = {}
     os.makedirs(op.join("data", str(time_offset)), exist_ok=True)
     for typ, dset in dset_dct.items():
+        tables = []
         for w in windows:
             tmp_cols = single_val_cols + [f"{c}_{w[0]}" for c in multi_val_cols] + \
                 [f"M_WEATHER_FORECAST_SAMPLES_M_WEATHER_{w[1]}",
                     f"M_RAIN_PERCENTAGE_{w[1]}"]
             dset_tmp = dset[tmp_cols]
-            dset_tmp = dset_tmp.dropna()
             tables.append(dset_tmp.__array__())
         rows = [row for table in tables for row in table]
         df = pd.DataFrame(columns=columns, data=rows)
-        if drop_duplicates:
-            df = df.drop_duplicates().reset_index(drop=True)
+        df = df.drop("M_SESSION_UID",axis=1)
         df.to_csv(op.join("data", str(time_offset), typ+".csv"), index=False)
         processed_dset_dct[typ] = df
     return processed_dset_dct
 
-
+# calls create_dataset if the dataset is not saved otherwise reads it
 def get_df(df_dct, time_offset):
     if op.exists(op.join("data", time_offset, "train.csv")) and op.exists(op.join("data", time_offset, "val.csv")) and op.exists(op.join("data", time_offset, "test.csv")):
-        train_df = pd.read_csv(op.join("data", time_offset, "train.csv"), index_col=0)
-        val_df = pd.read_csv(op.join("data", time_offset, "val.csv"), index_col=0)
-        test_df = pd.read_csv(op.join("data", time_offset, "test.csv"), index_col=0)
+        train_df = pd.read_csv(op.join("data", time_offset, "train.csv"))
+        val_df = pd.read_csv(op.join("data", time_offset, "val.csv"))
+        test_df = pd.read_csv(op.join("data", time_offset, "test.csv"))
         df_t_min_dct = {"train": train_df, "val": val_df, "test": test_df}
     else:
         df_t_min_dct = create_dataset(df_dct, time_offset)
     return df_t_min_dct
 
+# calls get_df for all possible time_offset values
 def get_dfs(df_dct):
     df_timed_dct = {}
     for time_offset in ["5","10","15","30","60"]:
