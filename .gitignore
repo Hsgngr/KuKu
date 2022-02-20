@@ -127,4 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-data/weather.csv
+data/*.csv
+data/*/*
+.DS_Store
+data/.DS_Store

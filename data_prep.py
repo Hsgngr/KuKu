@@ -1,13 +1,10 @@
+from genericpath import exists
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from tqdm import tqdm
-from collections import Counter
 import random
-
-seed = 42
-random.seed(seed)
-np.random.seed(seed)
+import os.path as op
+import os
 
 forecast_sample_cols = [
     'M_WEATHER_FORECAST_SAMPLES_M_SESSION_TYPE',
@@ -23,6 +20,21 @@ additional_cols = [
     "M_TRACK_ID",
     "M_FORECAST_ACCURACY"
 ]
+
+time_windows = {
+    "5": [(0, 5), (5, 10), (10, 15)],
+    "10": [(0, 10), (5, 15)],
+    "15": [(0, 15), (15, 30)],
+    "30": [(0, 30), (30, 60), (60, 90), (90, 120)],
+    "60": [(0, 60), (60, 120)]
+}
+single_val_cols = ['SESSION_TYPE', 'TRACK_ID', 'FORECAST_ACCURACY']
+multi_val_cols = ['AIR_TEMPERATURE_CHANGE',
+                  'TRACK_TEMPERATURE',
+                  'WEATHER',
+                  'RAIN_PERCENTAGE',
+                  'TRACK_TEMPERATURE_CHANGE',
+                  'AIR_TEMPERATURE']
 
 def clean_dataframe(data):
     dct = {}
@@ -64,8 +76,8 @@ def create_processed_frame(dct, name=None):
         df.to_csv(name)
     return df
 
-def prepare_datasets(dataset_path, train_ratio = 0.7, val_ratio = 0.2, test_ratio = 0.1):
-    data = pd.read_csv("weather.csv")
+def prepare_datasets(dataset_path, train_ratio = 0.7, val_ratio = 0.2):
+    data = pd.read_csv(dataset_path)
     if "Unnamed: 58" in data.columns:
         data = data.drop(["Unnamed: 58"],axis=1)
     session_uids = list(set(data["M_SESSION_UID"]))
@@ -83,8 +95,47 @@ def prepare_datasets(dataset_path, train_ratio = 0.7, val_ratio = 0.2, test_rati
     test_dct_cleaned = clean_dataframe(test_data)
     
     print("Creating Dataframes")
-    train_df = create_processed_frame(train_dct_cleaned, "train.csv")
-    val_df = create_processed_frame(val_dct_cleaned, "val.csv")
-    test_df = create_processed_frame(test_dct_cleaned, "test.csv")
-    
-    
+    train_df = create_processed_frame(train_dct_cleaned, op.join("data","train.csv"))
+    val_df = create_processed_frame(val_dct_cleaned, op.join("data","val.csv"))
+    test_df = create_processed_frame(test_dct_cleaned, op.join("data","test.csv"))
+    return train_df, val_df, test_df
+
+
+def create_dataset(dset_dct, time_offset):
+    tables = []
+    columns = single_val_cols + multi_val_cols + \
+        ["TARGET_WEATHER", "TARGET_RAIN_PERCENTAGE"]
+    windows = time_windows[time_offset]
+    processed_dset_dct = {}
+    os.makedirs(op.join("data", str(time_offset)), exist_ok=True)
+    for typ, dset in dset_dct.items():
+        for w in windows:
+            tmp_cols = single_val_cols + [f"{c}_{w[0]}" for c in multi_val_cols] + \
+                [f"WEATHER_{w[1]}", f"RAIN_PERCENTAGE_{w[1]}"]
+            dset_tmp = dset[tmp_cols]
+            dset_tmp = dset_tmp.dropna()
+            tables.append(dset_tmp.__array__())
+        rows = [row for table in tables for row in table]
+        df = pd.DataFrame(columns=columns, data=rows)
+        df.to_csv(op.join("data", str(time_offset), typ+".csv"))
+        processed_dset_dct[typ] = df
+    return processed_dset_dct
+
+
+def get_df(df_dct, time_offset):
+    if op.exists(op.join("data", time_offset, "train.csv")) and op.exists(op.join("data", time_offset, "val.csv")) and op.exists(op.join("data", time_offset, "test.csv")):
+        train_df = pd.read_csv(op.join("data", time_offset, "train.csv"))
+        val_df = pd.read_csv(op.join("data", time_offset, "val.csv"))
+        test_df = pd.read_csv(op.join("data", time_offset, "test.csv"))
+        df_t_min_dct = {"train": train_df, "val": val_df, "test": test_df}
+    else:
+        df_t_min_dct = create_dataset(df_dct, time_offset)
+    return df_t_min_dct
+
+def get_dfs(df_dct):
+    df_timed_dct = {}
+    for time_offset in ["5","10","15","30","60"]:
+        print(f"Creating dataset for time_offset={time_offset}")
+        df_timed_dct[time_offset] = get_df(df_dct, time_offset)
+    return df_timed_dct
+        
