@@ -16,6 +16,7 @@ forecast_sample_cols = [
     'M_AIR_TEMPERATURE_CHANGE',
     'M_RAIN_PERCENTAGE']
 
+# ADD ADDITIONAL COLUMNS TO HERE
 additional_cols = [
     "M_TRACK_ID",
     "M_FORECAST_ACCURACY"
@@ -28,6 +29,7 @@ time_windows = {
     "30": [(0, 30), (30, 60), (60, 90), (90, 120)],
     "60": [(0, 60), (60, 120)]
 }
+# ADD ADDITIONAL COLUMNS TO HERE
 single_val_cols = ['SESSION_TYPE', 'TRACK_ID', 'FORECAST_ACCURACY']
 multi_val_cols = ['AIR_TEMPERATURE_CHANGE',
                   'TRACK_TEMPERATURE',
@@ -38,35 +40,29 @@ multi_val_cols = ['AIR_TEMPERATURE_CHANGE',
 
 def clean_dataframe(data):
     dct = {}
-    for sid in tqdm(set(data["M_SESSION_UID"])):
-        data_sid = data[data["M_SESSION_UID"] ==sid]
-        for ts in set(data_sid["TIMESTAMP"]):
-            data_sid_ts = data_sid[data_sid["TIMESTAMP"] == ts]
+    for (sid, ts), data_sid_ts in tqdm(data.groupby(["M_SESSION_UID", "TIMESTAMP"])):
             num_samples = list(data_sid_ts["M_NUM_WEATHER_FORECAST_SAMPLES"])[0]
             if num_samples > 0:
                 sess_col = "M_WEATHER_FORECAST_SAMPLES_M_SESSION_TYPE"
                 num_nans = data_sid_ts[sess_col].isna().sum()
-                data_sid_ts = data_sid_ts.iloc[num_nans:num_nans+num_samples]
-                for sess_type in set(data_sid_ts[sess_col]):
-                    data_sid_ts_sess = data_sid_ts[data_sid_ts[sess_col]==sess_type]
-                    data_sid_ts_sess = data_sid_ts_sess[forecast_sample_cols+additional_cols]
-                    dct[(sid,ts,sess_type)] = data_sid_ts_sess
+                for sess_type, data_sid_ts_sess in data_sid_ts.iloc[num_nans:num_nans+num_samples].groupby(sess_col):
+                    dct[(sid,ts,sess_type)] = data_sid_ts_sess[forecast_sample_cols+additional_cols]
     return dct
 
 
-def create_processed_frame(dct, name=None):
+def create_processed_frame(dct, name=None, drop_duplicates=True):
     times = ["0", "5", "10", "15", "30", "45", "60", "90", "120"]
-
-    single_val_cols = ["M_WEATHER_FORECAST_SAMPLES_M_SESSION_TYPE", "M_TRACK_ID", "M_FORECAST_ACCURACY"]
+    
+    single_val_cols = ["M_WEATHER_FORECAST_SAMPLES_M_SESSION_TYPE", "M_TRACK_ID", "M_FORECAST_ACCURACY"] # ADD ADDITIONAL COLUMNS TO HERE
     multi_val_cols = ["M_WEATHER_FORECAST_SAMPLES_M_WEATHER", "M_WEATHER_FORECAST_SAMPLES_M_TRACK_TEMPERATURE",
-                      "M_WEATHER_FORECAST_SAMPLES_M_AIR_TEMPERATURE",
+                      "M_WEATHER_FORECAST_SAMPLES_M_AIR_TEMPERATURE", 
                       "M_TRACK_TEMPERATURE_CHANGE", "M_AIR_TEMPERATURE_CHANGE", "M_RAIN_PERCENTAGE"]
     multi_val_cols_timed = [f"{el}_{time}" for time in times for el in multi_val_cols]
     rows = []
     for (sid,ts,sess_type), table in tqdm(dct.items()):
         nans = [np.nan]*(len(times)-len(table))
         single_vals = list(table[single_val_cols].iloc[0])
-        multi_vals = np.array([[el for el in list(table[col])+nans] for col in multi_val_cols]).T.flatten()
+        multi_vals = np.array([list(table[col])+nans for col in multi_val_cols]).T.flatten()
         row = single_vals + list(multi_vals)
         rows.append(row)
     columns = single_val_cols + multi_val_cols_timed
@@ -101,7 +97,7 @@ def prepare_datasets(dataset_path, train_ratio = 0.7, val_ratio = 0.2):
     return train_df, val_df, test_df
 
 
-def create_dataset(dset_dct, time_offset):
+def create_dataset(dset_dct, time_offset, drop_duplicates=True):
     tables = []
     columns = single_val_cols + multi_val_cols + \
         ["TARGET_WEATHER", "TARGET_RAIN_PERCENTAGE"]
@@ -117,6 +113,8 @@ def create_dataset(dset_dct, time_offset):
             tables.append(dset_tmp.__array__())
         rows = [row for table in tables for row in table]
         df = pd.DataFrame(columns=columns, data=rows)
+        if drop_duplicates:
+            df = df.drop_duplicates().reset_index(drop=True)
         df.to_csv(op.join("data", str(time_offset), typ+".csv"))
         processed_dset_dct[typ] = df
     return processed_dset_dct
@@ -124,9 +122,9 @@ def create_dataset(dset_dct, time_offset):
 
 def get_df(df_dct, time_offset):
     if op.exists(op.join("data", time_offset, "train.csv")) and op.exists(op.join("data", time_offset, "val.csv")) and op.exists(op.join("data", time_offset, "test.csv")):
-        train_df = pd.read_csv(op.join("data", time_offset, "train.csv"))
-        val_df = pd.read_csv(op.join("data", time_offset, "val.csv"))
-        test_df = pd.read_csv(op.join("data", time_offset, "test.csv"))
+        train_df = pd.read_csv(op.join("data", time_offset, "train.csv"), index_col=0)
+        val_df = pd.read_csv(op.join("data", time_offset, "val.csv"), index_col=0)
+        test_df = pd.read_csv(op.join("data", time_offset, "test.csv"), index_col=0)
         df_t_min_dct = {"train": train_df, "val": val_df, "test": test_df}
     else:
         df_t_min_dct = create_dataset(df_dct, time_offset)
@@ -135,7 +133,7 @@ def get_df(df_dct, time_offset):
 def get_dfs(df_dct):
     df_timed_dct = {}
     for time_offset in ["5","10","15","30","60"]:
-        print(f"Creating dataset for time_offset={time_offset}")
+        print("Creating dataset for time_offset={}".format(time_offset))
         df_timed_dct[time_offset] = get_df(df_dct, time_offset)
     return df_timed_dct
         
