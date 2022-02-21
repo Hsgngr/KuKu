@@ -120,6 +120,7 @@ def create_dataset(dset_dct, time_offset, single_val_cols, multi_val_cols, drop_
             tables.append(dset_tmp.__array__())
         rows = [row for table in tables for row in table]
         df = pd.DataFrame(columns=columns, data=rows)
+        df["TARGET_WEATHER"] = df["TARGET_WEATHER"].astype("int64")
         # drop duplicates only from train
         if drop_duplicates and typ=="train":
             df = df.drop_duplicates()
