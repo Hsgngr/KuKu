@@ -16,6 +16,13 @@ This year's theme was Weather Forecasting for Formula1. The data was provided by
 - [Future Work](#future-work)
 
 # Getting Started
+This document aims to explain our solution in a deep technical-level. Since the challenge has also a presentation video, we kept the documentation as much as detailed as a reference. 
+We used jupyter-notebooks to make data analysis workflow more visibly clear and interpretable. Also we created our own modules for readability and scalability.
+
+* `main.ipynb` is our main notebook, which has simply every step from reading the data, preprocessing, exploratory data analysis, model training and evaluation.
+* `training.ipynb` is training of machine learning model for predicting price values also includes feature selection.
+* `nlp.ipynb` is my attempt to predict the room size from the space column of airbnb data by utilizing NLP
+* `data` folder includes raw and processed data
 
 # Data Preprocessing and Feature Engineering
 
