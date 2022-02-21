@@ -16,8 +16,20 @@ time_windows = {
     "60": [(0, 60), (60, 120)]
 }
 single_val_cols = [
-                   "M_WEATHER_FORECAST_SAMPLES_M_SESSION_TYPE",
                    "M_FORECAST_ACCURACY",
+                   "M_TOTAL_LAPS",
+                   'M_PIT_STOP_WINDOW_IDEAL_LAP',
+                   'M_PIT_STOP_WINDOW_LATEST_LAP',
+                   'M_PIT_STOP_REJOIN_POSITION',
+                   'M_STEERING_ASSIST',
+                   'M_BRAKING_ASSIST',
+                   'M_GEARBOX_ASSIST',
+                   'M_PIT_ASSIST',
+                   'M_PIT_RELEASE_ASSIST',
+                   'M_ERSASSIST',
+                   'M_DRSASSIST',
+                   'M_DYNAMIC_RACING_LINE',
+                   'M_DYNAMIC_RACING_LINE_TYPE'
                    ]
 
 multi_val_cols = [
