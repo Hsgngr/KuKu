@@ -1,6 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_error, precision_recall_fscore_support, accuracy_score
+import os
+import pickle
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+
+WEATHER_CLASSES = [0,1,2,3,5,6]
+TRACK_CLASSES = [1, 2, 3, 4, 5, 7, 11, 15, 18, 19, 26, 27, 28]
+TIME_OFFSETS = [5,10,15,30,60]
 
 def plot_class_histograms_to_row(ax, df_timed_dct_single_time, time_offset, max_class_idx=6):
     """Takes a dict for single time_offset"""
@@ -41,23 +49,102 @@ def plot_class_histograms(df_timed_dct, max_class_idx=6):
     return fig
 
 
-def get_predict(dfs, model, problem_name, target_col, drop_cols, metric_func):
-    X_train = dfs["train"].drop(drop_cols, axis=1)  # remove annoying warnings
-    y_train = dfs["train"][target_col].to_numpy().reshape(-1)
+def handle_categorical(df, categorical_cols):
+    for col in categorical_cols:
+        for c in categorical_cols[col]:
+            df[f"{col}_{c}"] = \
+            df[f"{col}"].apply(lambda row: 1 if row == c else 0)
+    df = df.drop(categorical_cols, axis=1)
+    return df
+
+
+def preprocess(Xs, categorical_cols):
+    res_Xs = []
+    for X in Xs:
+        X = handle_categorical(X, categorical_cols)    
+        res_Xs.append(X)
+    return res_Xs
+
+
+def save_model(model, model_type, time_offset):
+    os.makedirs(os.path.join("model_weights", model_type), exist_ok=True)
+    file_path = f'model_weights/{model_type}/{time_offset}.pkl'
+    pickle.dump(model, open(file_path, 'wb'))
+
+    
+def add_weather_preds(Xs, time_offset):
+    model = pickle.load(open(f'model_weights/weather/{time_offset}.pkl', 'rb'))
+    res_Xs = []
+    cat_cols = []
+    for X in Xs:
+        cols= {}
+        for to in TIME_OFFSETS:
+            if to < int(time_offset):
+                cols[f"WHEATHER_PRED_{to}"] = model.predict(X)
+                cat_cols.append(f"WHEATHER_PRED_{to}")
+        add_df = pd.DataFrame.from_dict(cols)
+        X = pd.concat([X, add_df], axis=1)
+        res_Xs.append(X)
+    cat_cols = list(set(cat_cols))
+    cat_cols_dct = {c: WEATHER_CLASSES for c in cat_cols}
+    res_Xs = preprocess(res_Xs, cat_cols_dct)
+    return res_Xs
+
+
+def get_predict(dfs, model, metric_func, model_type, time_offset, target_col, drop_cols, 
+                categorical_cols):
+    X_train = dfs["train"].drop(drop_cols, axis=1)
+    y_train = dfs["train"][target_col]
     X_val = dfs["val"].drop(drop_cols, axis=1)
-    y_val = dfs["val"][target_col].to_numpy().reshape(-1)
+    y_val = dfs["val"][target_col]
     X_test = dfs["test"].drop(drop_cols, axis=1)
-    y_test = dfs["test"][target_col].to_numpy().reshape(-1)
+    y_test = dfs["test"][target_col]
+    
+    
+    
+    X_train,X_val, X_test = preprocess([X_train,X_val, X_test], categorical_cols)
+    
+    # if model_type == "rain_percentage":
+    #     X_train, X_val, X_test = add_weather_preds([X_train,X_val, X_test], time_offset)
+    
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_val = scaler.transform(X_val)
+    X_test = scaler.transform(X_test)
+    
+    
+    
+    
     model.fit(X_train, y_train)
+    save_model(model, model_type, time_offset)
+    
     y_pred_train = model.predict(X_train)
     y_pred_val = model.predict(X_val)
     y_pred_test = model.predict(X_test)
-    #print(problem_name)
+    
     return metric_func(y_train, y_val, y_test, y_pred_train, y_pred_val, y_pred_test)
 
 
-def get_classification_metrics(y_train, y_val, y_test, y_pred_train, y_pred_val, y_pred_test, verbose=False):
+# def get_predict(dfs, model, problem_name, target_col, drop_cols, metric_func):
+#     X_train = dfs["train"].drop(drop_cols, axis=1)  # remove annoying warnings
+#     y_train = dfs["train"][target_col].to_numpy().reshape(-1)
+#     X_val = dfs["val"].drop(drop_cols, axis=1)
+#     y_val = dfs["val"][target_col].to_numpy().reshape(-1)
+#     X_test = dfs["test"].drop(drop_cols, axis=1)
+#     y_test = dfs["test"][target_col].to_numpy().reshape(-1)
+#     model.fit(X_train, y_train)
+#     y_pred_train = model.predict(X_train)
+#     y_pred_val = model.predict(X_val)
+#     y_pred_test = model.predict(X_test)
+#     #print(problem_name)
+#     return metric_func(y_train, y_val, y_test, y_pred_train, y_pred_val, y_pred_test)
 
+
+def get_classification_metrics(y_train, y_val, y_test, y_pred_train, y_pred_val, y_pred_test, verbose=False):
+    y_train = y_train["TARGET_WEATHER"]
+    y_test = y_test["TARGET_WEATHER"]
+    y_val = y_val["TARGET_WEATHER"]
+    
     # Find exactly which classes are in each set
     train_classes = np.unique(np.concatenate(
         (y_train, y_pred_train))).astype('int32')
@@ -125,24 +212,37 @@ def get_regression_metrics(y_train, y_val, y_test, y_pred_train, y_pred_val, y_p
     print()
 
 
-def plot_model_performance(model, data, save=False):
-    fig, ax = plt.subplots(5, 4, figsize=(15, 16), constrained_layout=True)
-    title = "{} Performances".format(type(model).__name__)
-    fig.suptitle(title, fontsize=20)
-    for i, (time_offset, data_time) in enumerate(data.items()):
-        precisions, recalls, f1_scores, accs = get_predict(data_time,
-                                                     model,
-                                                     f"Weather {time_offset} Min",
-                                                     ["TARGET_WEATHER"],
-                                                     ["TARGET_WEATHER",
-                                                         "TARGET_RAIN_PERCENTAGE"],
-                                                     get_classification_metrics)
+def plot_model_performance(model, data, model_type, save=False):
+    if model_type == "weather":    
+        fig, ax = plt.subplots(5, 4, figsize=(15, 16), constrained_layout=True)
+        title = "{} Performances".format(type(model).__name__)
+        fig.suptitle(title, fontsize=20)
+        for i, (time_offset, data_time) in enumerate(data.items()):
+            precisions, recalls, f1_scores, accs = \
+                get_predict(data_time, model,get_classification_metrics, "weather", time_offset,
+                    target_col=["TARGET_WEATHER"], 
+                    drop_cols=["TARGET_WEATHER","TARGET_RAIN_PERCENTAGE"], 
+                    categorical_cols={"M_WEATHER_FORECAST_SAMPLES_M_WEATHER" : WEATHER_CLASSES})
+                # get_predict(data_time,
+                #                                          model,
+                #                                          f"Weather {time_offset} Min",
+                #                                          ["TARGET_WEATHER"],
+                #                                          ["TARGET_WEATHER",
+                #                                              "TARGET_RAIN_PERCENTAGE"],
+                #                                          get_classification_metrics)
+                
+                                                        
 
-        plot_scores_to_ax(ax[i], precisions, recalls, f1_scores, accs, time_offset)
-    plt.show()
-    if save:
-        fig.savefig('{}.jpeg'.format('_'.join(title.split(' '))))
-
+            plot_scores_to_ax(ax[i], precisions, recalls, f1_scores, accs, time_offset)
+        plt.show()
+        if save:
+            fig.savefig('{}.jpeg'.format('_'.join(title.split(' '))))
+    else:
+        for i, (time_offset, data_time) in enumerate(data.items()):
+            get_predict(data_time, model, get_regression_metrics, "rain_percentage", time_offset,
+                        target_col=["TARGET_RAIN_PERCENTAGE"], 
+                        drop_cols=["TARGET_WEATHER","TARGET_RAIN_PERCENTAGE"], 
+                        categorical_cols={"M_WEATHER_FORECAST_SAMPLES_M_WEATHER" : WEATHER_CLASSES})
 
 def plot_scores_to_ax(ax, precisions, recalls, f1_scores, accs, time_offset):
 
