@@ -15,37 +15,12 @@ time_windows = {
     "30": [(0, 30), (30, 60), (60, 90), (90, 120)],
     "60": [(0, 60), (60, 120)]
 }
-single_val_cols = [
-                   "M_FORECAST_ACCURACY",
-                   "M_TOTAL_LAPS",
-                   'M_PIT_STOP_WINDOW_IDEAL_LAP',
-                   'M_PIT_STOP_WINDOW_LATEST_LAP',
-                   'M_PIT_STOP_REJOIN_POSITION',
-                   'M_STEERING_ASSIST',
-                   'M_BRAKING_ASSIST',
-                   'M_GEARBOX_ASSIST',
-                   'M_PIT_ASSIST',
-                   'M_PIT_RELEASE_ASSIST',
-                   'M_ERSASSIST',
-                   'M_DRSASSIST',
-                   'M_DYNAMIC_RACING_LINE',
-                   'M_DYNAMIC_RACING_LINE_TYPE'
-                   ]
 
-multi_val_cols = [
-                  "M_WEATHER_FORECAST_SAMPLES_M_WEATHER",
-                  "M_WEATHER_FORECAST_SAMPLES_M_TRACK_TEMPERATURE",
-                  "M_WEATHER_FORECAST_SAMPLES_M_AIR_TEMPERATURE",
-                  "M_TRACK_TEMPERATURE_CHANGE",
-                  "M_AIR_TEMPERATURE_CHANGE", 
-                  "M_RAIN_PERCENTAGE"]
-
-USE_FLAG_INFO = True
 
 # removes rows that has no forecast samples
 # selects rows that contain relevant forecast sample for each (session_uid, timestamp) tuple
 # returns a dictionary that maps (session_uid, timestamp) tuples to tables that has corresponding forecast sample rows
-def clean_dataframe(data):
+def clean_dataframe(data, single_val_cols, multi_val_cols):
     dct = {}
     columns = ["M_SESSION_UID","TIMESTAMP"] + single_val_cols + multi_val_cols
     data = data[data["M_NUM_WEATHER_FORECAST_SAMPLES"]>0]
@@ -59,7 +34,7 @@ def clean_dataframe(data):
 
 # creates a table where each row corresponds to a single (session_uid, timestamp) tuple and its all possible future forecasts
 # puts NaN values for forecasts that are not given
-def create_processed_frame(dct):
+def create_processed_frame(dct, single_val_cols, multi_val_cols):
     times = ["0", "5", "10", "15", "30", "45", "60", "90", "120"]
     multi_val_cols_timed = [f"{el}_{time}" for time in times for el in multi_val_cols]
     rows = []
@@ -88,12 +63,13 @@ def add_flag_info(original_dset, processed_dset):
 
 # calls clean_dataframe, create_processed_frame for the weather.csv
 # and then splits the cleaned df into train, val, test partition considering session uids
-def prepare_datasets(dataset_path, train_ratio = 0.7, val_ratio = 0.2):
+def prepare_datasets(dataset_path, single_val_cols, multi_val_cols, train_ratio = 0.7, val_ratio = 0.2, use_flag_info=True):
     data = pd.read_csv(dataset_path)
     if "Unnamed: 58" in data.columns:
         data = data.drop(["Unnamed: 58"],axis=1)
-    cleaned_df = clean_dataframe(data)
-    processed_df = create_processed_frame(cleaned_df)
+    cleaned_df = clean_dataframe(data, single_val_cols, multi_val_cols)
+    processed_df = create_processed_frame(
+        cleaned_df, single_val_cols, multi_val_cols)
     
     # drops duplicates ignoring NA
     temp_na_token = -999
@@ -112,7 +88,7 @@ def prepare_datasets(dataset_path, train_ratio = 0.7, val_ratio = 0.2):
         uid in val_uids for uid in processed_df["M_SESSION_UID"]]]
     test_df = processed_df[[uid in test_uids for uid in processed_df["M_SESSION_UID"]]]
 
-    if USE_FLAG_INFO:
+    if use_flag_info:
         train_df = add_flag_info(data, train_df)
         val_df = add_flag_info(data, val_df)
         test_df = add_flag_info(data, test_df)
@@ -128,7 +104,7 @@ def prepare_datasets(dataset_path, train_ratio = 0.7, val_ratio = 0.2):
     return train_df, val_df, test_df
 
 # for given time offset creates a table that has all relevant input features and outputs
-def create_dataset(dset_dct, time_offset, drop_duplicates=False):
+def create_dataset(dset_dct, time_offset, single_val_cols, multi_val_cols, drop_duplicates=False):
     flag_cols = [col for col in dset_dct["train"].columns if "FLAG" in col]
     columns = single_val_cols + multi_val_cols + flag_cols + ["TARGET_WEATHER", "TARGET_RAIN_PERCENTAGE"]
     windows = time_windows[time_offset]
@@ -152,21 +128,24 @@ def create_dataset(dset_dct, time_offset, drop_duplicates=False):
     return processed_dset_dct
 
 # calls create_dataset if the dataset is not saved otherwise reads it
-def get_df(df_dct, time_offset):
-    if op.exists(op.join("data", time_offset, "train.csv")) and op.exists(op.join("data", time_offset, "val.csv")) and op.exists(op.join("data", time_offset, "test.csv")):
+def get_df(df_dct, time_offset, single_val_cols, multi_val_cols, force_recreate=False):
+    if force_recreate or not op.exists(op.join("data", time_offset, "train.csv")) or \
+        not op.exists(op.join("data", time_offset, "val.csv")) or not op.exists(op.join("data", time_offset, "test.csv")):
+        df_t_min_dct = create_dataset(
+            df_dct, time_offset, single_val_cols, multi_val_cols)
+    else:
         train_df = pd.read_csv(op.join("data", time_offset, "train.csv"))
         val_df = pd.read_csv(op.join("data", time_offset, "val.csv"))
         test_df = pd.read_csv(op.join("data", time_offset, "test.csv"))
         df_t_min_dct = {"train": train_df, "val": val_df, "test": test_df}
-    else:
-        df_t_min_dct = create_dataset(df_dct, time_offset)
     return df_t_min_dct
 
 # calls get_df for all possible time_offset values
-def get_dfs(df_dct):
+def get_dfs(df_dct, single_val_cols, multi_val_cols):
     df_timed_dct = {}
     for time_offset in ["5","10","15","30","60"]:
         print("Creating dataset for time_offset={}".format(time_offset))
-        df_timed_dct[time_offset] = get_df(df_dct, time_offset)
+        df_timed_dct[time_offset] = get_df(
+            df_dct, time_offset, single_val_cols, multi_val_cols)
     return df_timed_dct
         
