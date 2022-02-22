@@ -1,3 +1,21 @@
+"""
+This scripts allows the user to create train, validation, test datasets by:
+    * Dropping unnecessary columns
+    * Removing Duplicates
+    * Creating time window pairs
+    * Splitting with Session UID to prevent any data leakages
+
+
+This file can be imported as a module to use following functions:
+    * prepare_datasets()
+    * get_dfs()
+
+Usage:
+    from src.data_prep import prepare_datasets, get_dfs
+    train_df, val_df, test_df = prepare_datasets(data_path, single_val_cols, multi_val_cols)
+
+
+"""
 from audioop import mul
 from genericpath import exists
 import pandas as pd
@@ -17,10 +35,26 @@ time_windows = {
 }
 
 
-# removes rows that has no forecast samples
-# selects rows that contain relevant forecast sample for each (session_uid, timestamp) tuple
-# returns a dictionary that maps (session_uid, timestamp) tuples to tables that has corresponding forecast sample rows
-def clean_dataframe(data, single_val_cols, multi_val_cols):
+def clean_dataframe_dct(data, single_val_cols, multi_val_cols):
+
+    """
+    Removes rows that has no forecast samples
+    Selects rows that contain relevant forecast sample for each (session_uid, timestamp) tuple
+
+    Parameters
+    ----------
+    data : DataFrame
+        The dataframe which is created from weather.csv file
+    single_val_cols : list
+        Columns which has only single values. Example: "M_TOTAL_LAPS"
+    multi_val_cols  : list
+        Columns which might have multiple values. Example: "M_WEATHER_FORECAST_SAMPLES_M_WEATHER",
+
+    Returns
+    -------
+    dct: Dictionary
+        that maps (session_uid, timestamp) tuples to tables that has corresponding forecast sample rows
+    """
     dct = {}
     columns = ["M_SESSION_UID","TIMESTAMP"] + single_val_cols + multi_val_cols
     data = data[data["M_NUM_WEATHER_FORECAST_SAMPLES"]>0]
@@ -32,9 +66,26 @@ def clean_dataframe(data, single_val_cols, multi_val_cols):
                 dct[(sid, ts, sess_type)] = data_sid_ts_sess[columns]
     return dct
 
-# creates a table where each row corresponds to a single (session_uid, timestamp) tuple and its all possible future forecasts
-# puts NaN values for forecasts that are not given
+
 def create_processed_frame(dct, single_val_cols, multi_val_cols):
+    """
+    Creates a table where each row corresponds to a single (session_uid, timestamp) tuple and its all possible future forecasts
+    Puts NaN values for forecasts that are not given
+
+    Parameters
+    ----------
+    dct : Dictionary
+        Gets the dataframe Dictionary
+    single_val_cols : list
+        Columns which has only single values. Example: "M_TOTAL_LAPS"
+    multi_val_cols  : list
+        Columns which might have multiple values. Example: "M_WEATHER_FORECAST_SAMPLES_M_WEATHER",
+
+    Returns
+    -------
+    df: DataFrame
+        Generated a tabular form.
+    """
     times = ["0", "5", "10", "15", "30", "45", "60", "90", "120"]
     multi_val_cols_timed = [f"{el}_{time}" for time in times for el in multi_val_cols]
     rows = []
@@ -61,15 +112,40 @@ def add_flag_info(original_dset, processed_dset):
                     "IS_YELLOW_FLAG_UP", "IS_RED_FLAG_UP"]] = ls
     return processed_dset
 
-# calls clean_dataframe, create_processed_frame for the weather.csv
+# calls clean_dataframe_dct, create_processed_frame for the weather.csv
 # and then splits the cleaned df into train, val, test partition considering session uids
 def prepare_datasets(dataset_path, single_val_cols, multi_val_cols, train_ratio = 0.7, val_ratio = 0.2, use_flag_info=True):
+    """
+    Main function which calls clean_dataframe_dct and create_processed_frame functions
+    Splits them into Train, Validation Test set by session uids
+
+    Parameters
+    ----------
+    dataset_path    : str
+        Path for preprocessed_data
+    single_val_cols : list
+        Columns which has only single values. Example: "M_TOTAL_LAPS"
+    multi_val_cols  : list
+        Columns which might have multiple values. Example: "M_WEATHER_FORECAST_SAMPLES_M_WEATHER",
+    train_ratio,val_ratio,test_ratio  : 
+        Ratio of session_uids for the given dataset
+    Returns
+    -------
+    train_df: DataFrame
+    val_df: Dataframe
+    test_df: Dataframe
+
+    Note: Splitting by session_uids do not guarantee that data will split exactly as the given ratio 
+    since each session_uid have different amount of rows.
+    """
     data = pd.read_csv(dataset_path)
     if "Unnamed: 58" in data.columns:
         data = data.drop(["Unnamed: 58"],axis=1)
-    cleaned_df = clean_dataframe(data, single_val_cols, multi_val_cols)
-    processed_df = create_processed_frame(
-        cleaned_df, single_val_cols, multi_val_cols)
+
+    print("Creating (session_uid, timestamp) pairs:")
+    cleaned_dct = clean_dataframe_dct(data, single_val_cols, multi_val_cols)
+    print("Converting into dataframe:")
+    processed_df = create_processed_frame(cleaned_dct, single_val_cols, multi_val_cols)
     
     # drops duplicates ignoring NA
     temp_na_token = -999
@@ -130,6 +206,23 @@ def create_dataset(dset_dct, time_offset, single_val_cols, multi_val_cols, drop_
 
 # calls create_dataset if the dataset is not saved otherwise reads it
 def get_df(df_dct, time_offset, single_val_cols, multi_val_cols, force_recreate=False):
+    """
+    Gets single dataframes for single Time Offset
+    Parameters
+    ----------
+    df_dct    : Dictionary
+        Dictionary which holds main train,val,test dataset.
+    single_val_cols : list
+        Columns which has only single values. Example: "M_TOTAL_LAPS"
+    multi_val_cols  : list
+        Columns which might have multiple values. Example: "M_WEATHER_FORECAST_SAMPLES_M_WEATHER",
+    force_recreate : Optional, Default: False
+
+    Returns
+    -------
+    df_dct for a single offset
+    """
+
     if force_recreate or not op.exists(op.join("data", time_offset, "train.csv")) or \
         not op.exists(op.join("data", time_offset, "val.csv")) or not op.exists(op.join("data", time_offset, "test.csv")):
         df_t_min_dct = create_dataset(
@@ -143,6 +236,21 @@ def get_df(df_dct, time_offset, single_val_cols, multi_val_cols, force_recreate=
 
 # calls get_df for all possible time_offset values
 def get_dfs(df_dct, single_val_cols, multi_val_cols):
+    """
+    Main function to get all the dataframes 
+    Parameters
+    ----------
+    df_dct    : Dictionary
+        Dictionary which holds main train,val,test dataset.
+    single_val_cols : list
+        Columns which has only single values. Example: "M_TOTAL_LAPS"
+    multi_val_cols  : list
+        Columns which might have multiple values. Example: "M_WEATHER_FORECAST_SAMPLES_M_WEATHER",
+
+    Returns
+    -------
+    df_timed_dct: Dictionary of Time Offset Dictionary. 
+    """
     df_timed_dct = {}
     for time_offset in ["5","10","15","30","60"]:
         print("Creating dataset for time_offset={}".format(time_offset))
