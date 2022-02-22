@@ -202,7 +202,7 @@ def get_classification_metrics(y_train, y_val, y_test, y_pred_train, y_pred_val,
 
     #classes = [train_classes,val_classes,test_classes]
 
-    return prec, rec, f1, acc
+    return prec, rec, f1, acc, [train_acc, val_acc, test_acc]
 
 
 def get_regression_metrics(y_train, y_val, y_test, y_pred_train, y_pred_val, y_pred_test):
@@ -218,7 +218,7 @@ def plot_model_performance(model, data, model_type, save=False):
         title = "{} Performances".format(type(model).__name__)
         fig.suptitle(title, fontsize=20)
         for i, (time_offset, data_time) in enumerate(data.items()):
-            precisions, recalls, f1_scores, accs = \
+            precisions, recalls, f1_scores, accs, accs2 = \
                 get_predict(data_time, model,get_classification_metrics, "weather", time_offset,
                     target_col=["TARGET_WEATHER"], 
                     drop_cols=["TARGET_WEATHER","TARGET_RAIN_PERCENTAGE"], 
@@ -232,13 +232,18 @@ def plot_model_performance(model, data, model_type, save=False):
                 #                                          get_classification_metrics)
                 
                                                         
-
+            print(f"Weather {time_offset} mins")
+            print("Train Acc: {:.2f}".format(accs2[0]))
+            print("Validation Acc: {:.2f}".format(accs2[1]))
+            print("Test Acc: {:.2f}".format(accs2[2]))
+            print(" ")
             plot_scores_to_ax(ax[i], precisions, recalls, f1_scores, accs, time_offset)
         plt.show()
         if save:
             fig.savefig('{}.jpeg'.format('_'.join(title.split(' '))))
     else:
         for i, (time_offset, data_time) in enumerate(data.items()):
+            print(f"Rain Percentage {time_offset}:")
             get_predict(data_time, model, get_regression_metrics, "rain_percentage", time_offset,
                         target_col=["TARGET_RAIN_PERCENTAGE"], 
                         drop_cols=["TARGET_WEATHER","TARGET_RAIN_PERCENTAGE"], 
