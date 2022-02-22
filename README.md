@@ -20,6 +20,7 @@ This year's theme was Weather Forecasting for Formula1. The data was provided by
 # Data Preprocessing and Feature Engineering
 
 # Exploratory Data Analysis
+![Class Histograms](https://user-images.githubusercontent.com/32769732/155216595-3a8ca014-8e4a-4d89-9f54-405634ba506f.png)
 
 # Data Modelling and Results
 
