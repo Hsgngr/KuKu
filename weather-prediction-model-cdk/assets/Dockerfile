@@ -1,11 +1,9 @@
 FROM public.ecr.aws/lambda/python:3.8
 
-ARG PROJECT_DIR="../.."
 # Copy function code
 COPY lambda_function.py ${LAMBDA_TASK_ROOT}
-COPY $PROJECT_DIR/models/model.pkl ${LAMBDA_TASK_ROOT}/models/model.pkl
-COPY $PROJECT_DIR/src/__init__.py ${LAMBDA_TASK_ROOT}/src/__init__.py
-COPY $PROJECT_DIR/src/model.py ${LAMBDA_TASK_ROOT}/src/model.py
+COPY models/ ${LAMBDA_TASK_ROOT}/models/
+COPY src/ ${LAMBDA_TASK_ROOT}/src/
 
 # Install the function's dependencies using file requirements.txt
 # from your project folder.
