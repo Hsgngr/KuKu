@@ -131,3 +131,4 @@ data/*.csv
 data/*/*
 .DS_Store
 data/.DS_Store
+model_weights/*
