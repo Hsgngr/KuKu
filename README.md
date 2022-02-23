@@ -55,8 +55,8 @@ One of the key points to mention here is after the feature selection, there are 
 
 We evaluated importance of features using SHAP library and XGBOOST. We choose the features for training according to following analysis. 
 
-![XGBOOST](/assets/XGBOOST.png)
-![SHAP](/assets/SHAP.png)
+![XGBOOST](https://user-images.githubusercontent.com/32769732/155245215-4baf13e5-bfd3-4229-b0ec-c052d0934392.png)
+![SHAP](https://user-images.githubusercontent.com/32769732/155245194-ebd964ca-8bc9-440c-9feb-46ba31481787.png)
 
 # Exploratory Data Analysis
 ![Class Histograms](https://user-images.githubusercontent.com/32769732/155216595-3a8ca014-8e4a-4d89-9f54-405634ba506f.png)
@@ -96,13 +96,12 @@ We chose Random Forest Regressor for rain percentage prediction after comparing 
 ## Results
 
 ### Weather
-
-![](/assets/weather_results.png)
-![](/assets/weather_results_classwise.png)
+![image](https://user-images.githubusercontent.com/32769732/155245132-95e8ded9-0f6f-4ea4-a9ee-f7081bfe4212.png)
+![weather_results_classwise](https://user-images.githubusercontent.com/32769732/155245086-6e0a958a-9fd4-48b0-8591-9e3a8f6a11d9.png)
 
 
 ### Rain Percentage
-![](/assets/rain.png)
+![image](https://user-images.githubusercontent.com/32769732/155245158-3e0b6704-8cdc-4cff-96aa-239f7d0e5d85.png)
 
 # Future Work
 
