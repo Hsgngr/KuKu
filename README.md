@@ -65,7 +65,9 @@ We evaluated importance of features using SHAP library and XGBOOST. We choose th
 
 ## Model
 
-![Model Architecture](/assets/Model_Structure.png)
+![kuku_diagram](https://user-images.githubusercontent.com/32769732/155241497-39c70c97-cc61-4d51-8f6d-d05c9ad4c8fe.png)
+
+
 
 For each time offset we used seperate models for both problems. For rain percentage regression we are feeding the results of the weather predictions as a feature to the input vector. Since the weather predictions are more accurate, and it is very important indicator for rain percentage, it imroved our prediction results for rain percentage prediction.
 
